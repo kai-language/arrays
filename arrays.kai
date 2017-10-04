@@ -1,0 +1,28 @@
+
+#import kai("libc")
+
+EXPANSION_FACTOR : f32 : 2
+
+append :: fn(arr: []$T, val: T) -> []T {
+    arr.len += 1
+    arr = reserve(arr, arr.len)
+    arr[arr.len - 1] = val
+    return arr
+}
+
+reserve :: fn(arr: []$T, cap: u64) -> []T {
+    if arr.cap == 0 {
+        buf := cast(*T) libc.malloc(cap * sizeof(T))
+        cpy := cast(*T) libc.memcpy(buf, arr.raw, arr.len * sizeof(T))
+        arr.raw = cpy
+    }
+    else if arr.cap < cap {
+        buf := cast(*T) libc.realloc(arr.raw, cap * sizeof(T))
+        arr.raw = buf
+    }
+    else { // arr.cap >= cap
+        return arr
+    }
+    arr.cap = cap
+    return arr
+}
