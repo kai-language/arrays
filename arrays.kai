@@ -1,23 +1,49 @@
 
 #import kai("posix")
+#import builtin("types")
+
+assert :: fn(cond: bool, file: string, line: u64) -> void {
+    if !cond {
+        /*posix.printf("Assertion Failed @ %s:%u\n", file.raw, line)
+        posix.exit(1)*/
+    }
+}
 
 EXPANSION_FACTOR : f32 : 2
 
-append :: fn(arr: []$T, val: T) -> []T {
+Append :: fn(arr: []$T, val: T) -> []T {
     arr.len += 1
-    arr = reserve(arr, arr.len)
+    arr = Reserve(arr, arr.len)
     arr[arr.len - 1] = val
     return arr
 }
 
-reserve :: fn(arr: []$T, cap: u64) -> []T {
+Prepend :: fn(arr: []$T, val: T) -> []T {
+    return Append([]T{val}, arr: arr)
+}
+
+AppendContents :: fn(arr: []$T, val: []T) -> []T {
+    newlen := arr.len + val.len
+    arr = Reserve(arr, newlen)
+
+    // FIXME: memcpy does not allow overlap. Fix that.
+    posix.memcpy(arr[arr.len:].raw, val.raw, val.len)
+    arr.len = newlen
+    return arr
+}
+
+PrependContents :: fn(arr: []$T, val: []T) -> []T {
+    return AppendContents(val, arr)
+}
+
+Reserve :: fn(arr: []$T, cap: u64) -> []T {
     if arr.cap == 0 {
-        buf := cast(*T) posix.malloc(cap * sizeof(T))
-        cpy := cast(*T) posix.memcpy(buf, arr.raw, arr.len * sizeof(T))
+        buf := cast(*T) posix.malloc(cap * types.SizeOf(T))
+        cpy := cast(*T) posix.memcpy(buf, arr.raw, arr.len * types.SizeOf(T))
         arr.raw = cpy
     }
     else if arr.cap < cap {
-        buf := cast(*T) posix.realloc(arr.raw, cap * sizeof(T))
+        buf := cast(*T) posix.realloc(arr.raw, cap * types.SizeOf(T))
         arr.raw = buf
     }
     else { // arr.cap >= cap
@@ -26,3 +52,59 @@ reserve :: fn(arr: []$T, cap: u64) -> []T {
     arr.cap = cap
     return arr
 }
+
+/*sort :: fn(arr: []$T, predicate: (T, T) -> bool) -> []T {
+    if arr.len <= 1 return
+
+    merge :: fn(left: []T, right: []T) -> []T {
+        result := arrays.Reserve([]T{}, left.len + right.len)
+
+        for left.len != 0 && right.len != 0 {
+            if left[0] <= right[0] {
+                result = arrays.append(result, left[0])
+                left = left[1:]
+            } else {
+                result = arrays.append(result, right[0])
+                right = right[1:]
+            }
+        }
+
+        for left.len != 0 {
+            result = arrays.append(result, left[0])
+            left = left[1:]
+        }
+
+        for right.len != 0 {
+            result = arrays.append(result, right[0])
+            right = right[1:]
+        }
+        return result
+    }
+
+    mid := arr.len / 2
+    left := mergeSort(arr[:mid])
+    right := mergeSort(arr[mid:])
+
+    arr = merge(left, right)
+
+    return arr
+}*/
+
+Remove :: fn(arr: []$T, index: u64) -> []T {
+    assert(arr.len >= index, #file, #line)
+
+    for el, index in arr[index + 1:] {
+        arr[index - 1] = el
+    }
+    /*posix.memmove(&arr.raw[index], &arr.raw[index + sizeof(T)], sizeof(T) * arr.len - index - 1)*/
+    return arr
+}
+
+/*filter :: fn(arr: []$T, predicate: (T) -> bool) -> []T {
+
+}*/
+
+/*main :: fn() -> void {
+    ([]i32{6, 3, 4, 2, 1, 5})
+        .sort(fn(a, b: i32){a < b})
+}*/
