@@ -1,110 +1,245 @@
 
 #import kai("posix")
-#import builtin("types")
-
-assert :: fn(cond: bool, file: string, line: u64) -> void {
-    if !cond {
-        /*posix.printf("Assertion Failed @ %s:%u\n", file.raw, line)
-        posix.exit(1)*/
-    }
-}
 
 EXPANSION_FACTOR : f32 : 2
 
-Append :: fn(arr: []$T, val: T) -> []T {
+Append :: fn(arr: *[]$T, val: T) -> void {
+    Reserve(arr, arr.len + 1)
+    (<arr)[arr.len] = val
     arr.len += 1
-    arr = Reserve(arr, arr.len)
-    arr[arr.len - 1] = val
-    return arr
 }
 
-Prepend :: fn(arr: []$T, val: T) -> []T {
-    return Append([]T{val}, arr: arr)
-}
-
-AppendContents :: fn(arr: []$T, val: []T) -> []T {
+AppendContents :: fn(arr: *[]$T, val: []T) -> void {
     newlen := arr.len + val.len
-    arr = Reserve(arr, newlen)
-
-    // FIXME: memcpy does not allow overlap. Fix that.
-    posix.memcpy(arr[arr.len:].raw, val.raw, val.len)
+    Reserve(arr, newlen)
+    posix.memmove(dst: &arr.raw[arr.len], src: val.raw, len: sizeof(T) * val.len)
     arr.len = newlen
-    return arr
 }
 
-PrependContents :: fn(arr: []$T, val: []T) -> []T {
-    return AppendContents(val, arr)
+Prepend :: fn(arr: *[]$T, val: T) -> void {
+    Reserve(arr, arr.len + 1)
+    posix.memmove(dst: &arr.raw[1], src: arr.raw, len: sizeof(T) * arr.len)
+    (<arr)[0] = val
+    arr.len += 1
 }
 
-Reserve :: fn(arr: []$T, cap: u64) -> []T {
+PrependContents :: fn(arr: *[]$T, val: []T) -> void {
+    newlen := arr.len + val.len
+    Reserve(arr, newlen)
+    posix.memmove(dst: &arr.raw[val.len], src: arr.raw, len: sizeof(T) * arr.len)
+    posix.memmove(dst: arr.raw, src: val.raw, len: sizeof(T) * val.len)
+    arr.len = newlen
+}
+
+Remove :: fn(arr: *[]$T, index: u64) -> void {
+    assert(index <= arr.len, "Array index out out bounds")
+
+    if index != arr.len - 1 {
+        posix.memmove(dst: &arr.raw[index], src: &arr.raw[index + 1], len: sizeof(T) * (arr.len - index - 1))
+    }
+    arr.len -= 1
+}
+
+Reserve :: fn(arr: *[]$T, cap: u64) -> void {
     if arr.cap == 0 {
-        buf := cast(*T) posix.malloc(cap * types.SizeOf(T))
-        cpy := cast(*T) posix.memcpy(buf, arr.raw, arr.len * types.SizeOf(T))
+        buf := cast(*T) posix.malloc(cap * sizeof(T))
+        cpy := cast(*T) posix.memcpy(buf, arr.raw, arr.len * sizeof(T))
         arr.raw = cpy
-    }
-    else if arr.cap < cap {
-        buf := cast(*T) posix.realloc(arr.raw, cap * types.SizeOf(T))
+    } else if arr.cap < cap {
+        buf := cast(*T) posix.realloc(arr.raw, cap * sizeof(T))
         arr.raw = buf
-    }
-    else { // arr.cap >= cap
-        return arr
+    } else { // arr.cap >= cap
+        return
     }
     arr.cap = cap
-    return arr
 }
 
-/*sort :: fn(arr: []$T, predicate: (T, T) -> bool) -> []T {
-    if arr.len <= 1 return
+MergeSort :: fn(arr: []$T, predicate: (T, T) -> bool) -> []T {
+    if arr.len <= 1 return arr
 
     merge :: fn(left: []T, right: []T) -> []T {
-        result := arrays.Reserve([]T{}, left.len + right.len)
+        result := []T{}
+        Reserve(&result, left.len + right.len)
 
         for left.len != 0 && right.len != 0 {
             if left[0] <= right[0] {
-                result = arrays.append(result, left[0])
+                Append(&result, left[0])
                 left = left[1:]
             } else {
-                result = arrays.append(result, right[0])
+                Append(&result, right[0])
                 right = right[1:]
             }
         }
 
         for left.len != 0 {
-            result = arrays.append(result, left[0])
+            Append(&result, left[0])
             left = left[1:]
         }
 
         for right.len != 0 {
-            result = arrays.append(result, right[0])
+            Append(&result, right[0])
             right = right[1:]
         }
         return result
     }
 
     mid := arr.len / 2
-    left := mergeSort(arr[:mid])
-    right := mergeSort(arr[mid:])
+    left := MergeSort(arr[:mid], predicate)
+    right := MergeSort(arr[mid:], predicate)
 
     arr = merge(left, right)
 
     return arr
-}*/
-
-Remove :: fn(arr: []$T, index: u64) -> []T {
-    assert(arr.len >= index, #file, #line)
-
-    for el, index in arr[index + 1:] {
-        arr[index - 1] = el
-    }
-    /*posix.memmove(&arr.raw[index], &arr.raw[index + sizeof(T)], sizeof(T) * arr.len - index - 1)*/
-    return arr
 }
 
-/*filter :: fn(arr: []$T, predicate: (T) -> bool) -> []T {
+#test "Static initialized slice has capacity of 0" {
+    arr := []u8{0, 1, 2, 3, 4}
+    assert(arr.cap == 0)
+}
 
-}*/
+#test "Append increases len & cap from zero" {
+    arr := []u8{}
+    Append(&arr, 8)
+    assert(arr[0] == 8)
+    assert(arr.len == 1)
+    assert(arr.cap >= 1)
+}
 
-/*main :: fn() -> void {
-    ([]i32{6, 3, 4, 2, 1, 5})
-        .sort(fn(a, b: i32){a < b})
-}*/
+#test "Append increases len & cap from non-zero" {
+    arr := []u8{0, 1}
+    Append(&arr, 2)
+    assert(arr[2] == 2)
+    assert(arr.len == 3)
+    assert(arr.cap >= 3)
+}
+
+#test "Remove reduces len but not cap" {
+    arr := []u8{0, 1, 2, 3, 4}
+    capPrior := arr.cap
+    Remove(&arr, 4)
+    assert(arr.len < 5)
+    assert(arr.cap == capPrior, "Capacity is expected to remain the same after Remove")
+}
+
+#test "Remove does nothing to last element" {
+    arr := []u8{0, 1, 2, 3, 4}
+    capPrior := arr.cap
+    Remove(&arr, 4)
+    assert(arr[4] == 4)
+    assert(arr.len < 5)
+    assert(arr.cap == capPrior, "Capacity is expected to remain the same after Remove")
+}
+
+#test "Remove shifts fills gaps" {
+    arr := []u8{0, 1, 2, 3, 4}
+    assert(arr[2] == 2)
+    Remove(&arr, 2)
+    assert(arr[2] == 3)
+}
+
+#test "Reserve grows array" {
+    arr := []u8{0, 1, 2, 3, 4}
+    Reserve(&arr, 50)
+    assert(arr.cap >= 50)
+}
+
+#test "AppendContents" {
+    arr := []u16{0, 1}
+    suffix := []u16{2, 3}
+    AppendContents(arr: &arr, val: suffix)
+
+    assert(arr.len == 4)
+    assert(arr.cap >= 4)
+    assert(arr[0] == 0)
+    assert(arr[1] == 1)
+    assert(arr[2] == 2)
+    assert(arr[3] == 3)
+}
+
+#test "AppendContents with zero length array" {
+    arr := []u16{0, 1, 2, 3}
+    suffix := []u16{}
+    AppendContents(arr: &arr, val: suffix)
+
+    assert(arr.len == 4)
+    assert(arr.cap >= 4)
+    assert(arr[0] == 0)
+    assert(arr[1] == 1)
+    assert(arr[2] == 2)
+    assert(arr[3] == 3)
+}
+
+#test "AppendContents with overlapping slice of self" {
+    arr := []u16{0, 1, 2, 3}
+    suffix := arr[1:3]
+    AppendContents(arr: &arr, val: suffix)
+    assert(arr.len == 6)
+    assert(arr.cap >= 6)
+    assert(arr[0] == 0)
+    assert(arr[1] == 1)
+    assert(arr[2] == 2)
+    assert(arr[3] == 3)
+    assert(arr[4] == 1)
+    assert(arr[5] == 2)
+}
+
+#test "Prepend" {
+    arr := []u16{1, 2, 3}
+    Prepend(&arr, 0)
+
+    assert(arr.len == 4)
+    assert(arr.cap >= 4)
+    assert(arr[0] == 0)
+}
+
+#test "PrependContents" {
+    arr := []u16{2, 3}
+    prefix := []u16{0, 1}
+    PrependContents(arr: &arr, val: prefix)
+
+    assert(arr.len == 4)
+    assert(arr.cap >= 4)
+    assert(arr[0] == 0)
+    assert(arr[1] == 1)
+    assert(arr[2] == 2)
+    assert(arr[3] == 3)
+}
+
+#test "PrependContents with zero length array" {
+    arr := []u16{0, 1}
+    prefix := []u16{}
+    PrependContents(arr: &arr, val: prefix)
+
+    assert(arr.len == 2)
+    assert(arr.cap >= 2)
+    assert(arr[0] == 0)
+    assert(arr[1] == 1)
+}
+
+#test "PrependContents with overlapping slice of self" {
+    arr := []u16{0, 1, 2, 3}
+    prefix := arr[1:3]
+    PrependContents(arr: &arr, val: prefix)
+    assert(arr.len == 6)
+    assert(arr.cap >= 6)
+    assert(arr[0] == 1)
+    assert(arr[1] == 2)
+    assert(arr[2] == 0)
+    assert(arr[3] == 1)
+    assert(arr[4] == 2)
+    assert(arr[5] == 3)
+}
+
+#test "MergeSort" {
+    arr := []u16{0, 5, 3, 1, 2, 4}
+    result := MergeSort(arr, fn(l, r: u16) -> bool { return l < r })
+
+    assert(result.len == 6)
+    assert(result.cap >= 6)
+    assert(result[0] == 0)
+    assert(result[1] == 1)
+    assert(result[2] == 2)
+    assert(result[3] == 3)
+    assert(result[4] == 4)
+    assert(result[5] == 5)
+}
